@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0f0e17">
+<title>Phantom Meme App</title>
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.98.0/lib/index.iife.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl.min.js"></script>
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#0f0e17;--card:#1b1a29;--fg:#eee;--mut:#9a98b0;--pri:#ab9ff2;--ok:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;max-width:720px;margin:auto}
+h1{font-size:20px;margin:0 0 12px}.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
+label{display:block;color:var(--mut);font-size:12px;margin:8px 0 2px}
+input,textarea,select{width:100%;padding:8px;border-radius:8px;border:1px solid #333;background:#0f0e17;color:var(--fg)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+button{background:var(--pri);color:#111;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;margin:4px 4px 0 0}
+button.g{background:#2a2940;color:var(--fg)}.warn{color:var(--bad);font-size:12px}
+.q{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #2a2940;padding:8px 0}
+.buy{color:var(--ok)}.sell{color:var(--bad)}pre{white-space:pre-wrap;font-size:12px;color:var(--mut);max-height:220px;overflow:auto;margin:0}
+</style></head><body>
+<h1>👻 Phantom Meme App</h1>
+<div class="card warn">Hosted-copy note: this page can connect to Phantom, but it cannot reach Jupiter's API from here, so scanning and swaps are blocked. For full function, host this file on your own HTTPS site (Netlify/Vercel/GitHub Pages), open it in your phone browser and use Share > Add to Home Screen. Connect opens the Phantom app, and every trade is approved inside Phantom. It only runs while the app is open.</div>
+<div class="card">
+ <button id="conn">Connect Phantom</button> <span id="addr" style="color:var(--mut)">not connected</span>
+ <p class="warn">With a burner key entered the agent trades AUTOMATICALLY, with no approvals. Without a key it only proposes trades. It runs only while this page is open and the screen is on; it stops when the phone is off. Keep DRY RUN on until you've watched it for a few days.</p>
+</div>
+<div class="card">
+ <label>Jupiter API key (free at developers.jup.ag/portal; stored only in this browser)</label>
+ <input id="key" type="password" placeholder="x-api-key">
+ <div class="row">
+  <div><label>Buy size (SOL)</label><input id="size" type="number" value="0.05" step="0.01"></div>
+  <div><label>Slippage (bps)</label><input id="slip" type="number" value="150"></div>
+  <div><label>Max positions</label><input id="max" type="number" value="3"></div>
+  <div><label>Max buys / day</label><input id="mbd" type="number" value="6"></div>
+  <div><label>Stop loss %</label><input id="sl" type="number" value="12"></div>
+  <div><label>Take profit %</label><input id="tp" type="number" value="35"></div>
+  <div><label>Trail % (after +15%)</label><input id="tr" type="number" value="10"></div>
+  <div><label>Min liquidity $</label><input id="liq" type="number" value="100000"></div>
+  <div><label>Min mcap $</label><input id="mcap" type="number" value="400000"></div>
+  <div><label>Max mcap $</label><input id="maxm" type="number" value="10000000"></div>
+  <div><label>Support timeframe</label><select id="tf"><option value="any">4h + Monthly</option><option value="4h">4h only</option><option value="1M">Monthly only</option></select></div>
+  <div><label>Min age (hours)</label><input id="age" type="number" value="24"></div>
+  <div><label>Support mode from (days)</label><input id="old" type="number" value="30"></div>
+ </div>
+ <label>AUTO MODE: burner wallet private key (base58). Kept in memory only, re-enter each time you open the app. Empty = approval mode.</label>
+ <input id="pk" type="password" placeholder="burner key">
+ <label>RPC URL (use your own Helius/QuickNode key for reliability)</label><input id="rpc" value="https://api.mainnet-beta.solana.com">
+ <label>GeckoTerminal proxy URL (your Cloudflare Worker, e.g. https://gecko-proxy.NAME.workers.dev). Needed for support levels.</label>
+ <input id="proxy" placeholder="https://...workers.dev">
+ <label>Allowlist (optional, mints separated by space/newline). Empty = all Jupiter tokens older than Min age with mcap above Min mcap (stables/LSTs/stocks excluded).</label>
+ <textarea id="allow" rows="2"></textarea>
+ <label><input id="dry" type="checkbox" checked style="width:auto"> DRY RUN (simulate, never send transactions)</label>
+ <button id="go">Start agent</button><button class="g" id="stop">Stop</button><button class="g" id="reset">Reset state</button>
+</div>
+<div class="card"><b>Pending approvals</b><div id="queue"></div></div>
+<div class="card"><b>Positions</b><div id="pos" style="color:var(--mut)">none</div></div>
+<div class="card"><b>Log</b><pre id="log"></pre></div>
+<script>
+const $=id=>document.getElementById(id),SOL='So11111111111111111111111111111111111111112',
+ TP='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+ SKIP=new Set([SOL,'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v','Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB','JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN']);
+const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let S=JSON.parse(ls.get('pma')||'{"pos":{},"cool":{},"buys":[]}'),wallet=null,queue=[],timer=null,n=0;
+$('key').value=ls.get('pmk')||'';$('proxy').value=ls.get('pmpx')||'';
+const save=()=>{ls.set('pma',JSON.stringify(S));ls.set('pmk',$('key').value);ls.set('pmpx',$('proxy').value)};
+const log=m=>{$('log').textContent=new Date().toLocaleTimeString()+'  '+m+'\n'+$('log').textContent.slice(0,5000)};
+const cfg=()=>({key:$('key').value.trim(),size:+$('size').value,slip:+$('slip').value,max:+$('max').value,mbd:+$('mbd').value,
+ sl:+$('sl').value/100,tp:+$('tp').value/100,tr:+$('tr').value/100,liq:+$('liq').value,mcap:+$('mcap').value,maxm:+$('maxm').value,tf:$('tf').value,age:+$('age').value,old:+$('old').value,rpc:$('rpc').value.trim(),proxy:$('proxy').value.trim(),dry:$('dry').checked,
+ allow:$('allow').value.split(/\s+/).filter(Boolean)});
+const jf=async p=>{const r=await fetch('https://api.jup.ag'+p,{headers:{'x-api-key':cfg().key}});if(!r.ok)throw new Error(p.split('?')[0]+' '+r.status);return r.json()};
+const quote=(a,b,amt)=>jf(`/swap/v1/quote?inputMint=${a}&outputMint=${b}&amount=${amt}&slippageBps=${cfg().slip}`);
+const verified=t=>t.isVerified||(t.tags||[]).includes('verified');
+
+const NOTMEME=new Set(['AAVE','PYTH','JUP','JTO','RENDER','LINK','UNI','WBTC','WETH','ETH','BTC','W','HNT','MNDE','DRIFT','KMNO','ORCA','RAY','MET']);
+function ok(t,c){ // returns false | 'mom' (young/mid tokens) | 'sup' (tokens older than c.old days)
+ if(SKIP.has(t.id)||(t.tags||[]).some(x=>['lst','stocks','stablecoin'].includes(x)))return false;
+ if(c.allow.length&&!c.allow.includes(t.id))return false;
+ if(NOTMEME.has((t.symbol||'').toUpperCase()))return false;
+ const ageH=(Date.now()-Date.parse((t.firstPool||{}).createdAt))/36e5;
+ if(!(ageH>=c.age)||!(t.mcap>=c.mcap&&t.mcap<=c.maxm))return false;
+ if(t.tokenProgram&&t.tokenProgram!==TP)return false;
+ const a=t.audit||{};if(a.isSus||a.mintAuthorityDisabled===false||a.freezeAuthorityDisabled===false||(a.topHoldersPercentage||0)>50)return false;
+ const s1=t.stats1h||{},s24=t.stats24h||{};
+ if((t.liquidity||0)<c.liq||(t.organicScore||0)<40||(s24.buyVolume||0)+(s24.sellVolume||0)<1e5||(s1.numTraders||0)<20)return false;
+ const br=(s1.numBuys||0)/Math.max(s1.numSells||0,1);
+ if(ageH>=c.old*24)return s1.priceChange>=-3&&br>=1?'sup':false; // bounce confirmation at support
+ return s1.priceChange>=2&&s1.priceChange<=25&&(s24.priceChange||0)<=80&&br>=1.15?'mom':false;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const gj=async u=>{let r;let px=cfg().proxy.replace(/\/+$/,'');if(px&&!/^https?:\/\//i.test(px))px='https://'+px;try{r=await fetch((px||'https://api.geckoterminal.com/api/v2')+u)}catch(e){throw new Error(px?'proxy unreachable - check the Worker URL':'network/CORS blocked - set the proxy URL')}
+ if(!r.ok){let b='';try{b=(await r.text()).slice(0,90)}catch(e){}
+  throw new Error('gecko HTTP '+r.status+(r.status===429?' (rate limit)':'')+' ['+u.split('?')[0].replace(/(tokens|pools)\/[^/]+/,'$1/…').slice(0,50)+'] '+b)}return r.json()};
+const SUP=JSON.parse(ls.get('pmsup6')||'{}');
+function swings(o,k){const lows=[],highs=[];for(let i=k;i<o.length-k;i++){const n=[];for(let j=i-k;j<=i+k;j++)if(j!==i)n.push(j);
+ if(n.every(j=>o[i][3]<=o[j][3]))lows.push(o[i][3]);if(n.every(j=>o[i][2]>=o[j][2]))highs.push(o[i][2])}return {lows,highs}}
+function monthly(o){const m={};for(const r of o){const k=new Date(r[0]*1000).toISOString().slice(0,7),x=m[k]||(m[k]={l:r[3],h:r[2]});x.l=Math.min(x.l,r[3]);x.h=Math.max(x.h,r[2])}
+ const a=Object.keys(m).sort().map(k=>m[k]),lows=[],highs=[];
+ for(let i=1;i<a.length-1;i++){if(a[i].l<=a[i-1].l&&a[i].l<=a[i+1].l)lows.push(a[i].l);if(a[i].h>=a[i-1].h&&a[i].h>=a[i+1].h)highs.push(a[i].h)}return {lows,highs}}
+const POOL=JSON.parse(ls.get('pmpool')||'{}');
+const cached=(id,c)=>{const d=SUP[id],n=Date.now();return d&&(c.tf==='1M'||d.h4&&n-d.h4.at<144e5)&&(c.tf==='4h'||d.m&&n-d.m.at<864e5)};
+async function support(t,c){ // pool address cached forever, 4h levels 4h, monthly levels 24h (saves API credits)
+ const d=SUP[t.id]||(SUP[t.id]={}),n=Date.now();
+ if(!POOL[t.id]){POOL[t.id]=(await gj(`/networks/solana/tokens/${t.id}/pools?page=1`)).data[0].attributes.address;ls.set('pmpool',JSON.stringify(POOL))}
+ if(c.tf!=='1M'&&!(d.h4&&n-d.h4.at<144e5)){await sleep(2500);d.h4={at:n,...swings((await gj(`/networks/solana/pools/${POOL[t.id]}/ohlcv/hour?aggregate=4&limit=500`)).data.attributes.ohlcv_list,3)}}
+ if(c.tf!=='4h'&&!(d.m&&n-d.m.at<864e5)){await sleep(2500);d.m={at:n,...monthly((await gj(`/networks/solana/pools/${POOL[t.id]}/ohlcv/day?limit=1000`)).data.attributes.ohlcv_list)}}
+ ls.set('pmsup6',JSON.stringify(SUP));return d}
+async function pick(t,c){ // monthly level wins over 4h; monthly zone is wider and its stop is looser
+ const d=await support(t,c),p=t.usdPrice;
+ for(const [tf,dd,tol,mt,lo,hi,stop] of [['1M',d.m,.05,1,.02,.04,.08],['4h',d.h4,.02,2,.01,.03,.04]]){
+  if(!dd)continue;
+  const sup=dd.lows.filter(l=>l<=p*1.04).sort((x,y)=>y-x)[0];if(!sup)continue;
+  const cnt=dd.lows.filter(l=>Math.abs(l/sup-1)<tol).length;
+  if(cnt<mt||p<sup*(1-lo)||p>sup*(1+hi))continue;
+  return {tf,sup,cnt,stop,res:dd.highs.filter(h=>h>p*1.05).sort((x,y)=>x-y)[0]}}
+ return null}
+
+async function scan(){
+ const c=cfg(),day=Date.now()-864e5;S.buys=S.buys.filter(x=>x>day);
+ const open=Object.keys(S.pos).length+queue.filter(q=>q.type==='buy').length;
+ if(open>=c.max||S.buys.length>=c.mbd)return;
+ const uni=[...new Map((await Promise.all(['/tokens/v2/tag?query=verified','/tokens/v2/toporganicscore/1h?limit=100','/tokens/v2/toptraded/1h?limit=100','/tokens/v2/toptrending/1h?limit=100'].map(u=>jf(u).catch(()=>[])))).flat().map(t=>[t.id,t])).values()];
+ const short=uni.filter(t=>!S.pos[t.id]&&!queue.some(q=>q.mint===t.id)&&(S.cool[t.id]||0)<Date.now()&&ok(t,c))
+  .sort((a,b)=>b.stats1h.priceChange-a.stats1h.priceChange).slice(0,15);
+ log(`scan: ${uni.length} tokens, ${short.length} pass filters`);
+ if(!short.length)return;
+ const fresh=await jf('/tokens/v2/search?query='+short.map(t=>t.id).join(','));
+ let g=0;
+ for(const t of fresh){
+  const m=ok(t,c);if(!m)continue;
+  let extra='',slp=null,tgt=null;
+  if(m==='sup'){if(!cached(t.id,c)&&++g>2)continue;
+   try{const s=await pick(t,c);if(!s)continue;
+    slp=s.sup*(1-s.stop);tgt=s.res||null;extra=` | ${s.tf} support $${s.sup.toPrecision(3)} (${s.cnt} touches)`}
+   catch(e){log('support '+t.symbol+': '+e.message);S.cool[t.id]=Date.now()+18e5;continue}}
+  const lam=Math.round(c.size*1e9),q=await quote(SOL,t.id,lam);
+  if(+q.priceImpactPct>0.02)continue;
+  const b=await quote(t.id,SOL,q.outAmount); // honeypot / tax proxy
+  if(b.outAmount/lam<0.92){S.cool[t.id]=Date.now()+36e5;log(`skip ${t.symbol}: round-trip ${(b.outAmount/lam*100).toFixed(0)}%`);continue}
+  queue.push({type:'buy',mint:t.id,sym:t.symbol,price:t.usdPrice,slp,tgt,note:`${m==='sup'?'SUPPORT':'MOMENTUM'} 1h ${t.stats1h.priceChange.toFixed(1)}% | organic ${t.organicScore} | liq $${Math.round(t.liquidity/1e3)}k${extra}`});
+  log(`proposal: BUY ${t.symbol}`);break;
+ }
+}
+
+async function manage(){
+ const mints=Object.keys(S.pos);if(!mints.length)return;
+ const live=await jf('/tokens/v2/search?query='+mints.join(','));const c=cfg();
+ for(const t of live){
+  const p=S.pos[t.id];if(!p||queue.some(q=>q.mint===t.id))continue;
+  p.peak=Math.max(p.peak,t.usdPrice);const chg=t.usdPrice/p.entry-1,pk=p.peak/p.entry-1,h=(Date.now()-p.t)/36e5;
+  let why=null;
+  if((t.audit||{}).isSus)why='flagged suspicious';else if(p.slp&&t.usdPrice<=p.slp)why='support broken';else if(p.tgt&&t.usdPrice>=p.tgt*.98)why='resistance target';
+  else if(chg<=-c.sl)why=`stop loss ${(chg*100).toFixed(0)}%`;else if(chg>=c.tp)why=`take profit +${(chg*100).toFixed(0)}%`;
+  else if(pk>=.15&&t.usdPrice<=p.peak*(1-c.tr))why=`trailing stop (peak +${(pk*100).toFixed(0)}%)`;
+  else if(h>=48)why='48h time stop';else if((t.liquidity||0)<c.liq/3)why='liquidity collapse';
+  if(why){queue.push({type:'sell',mint:t.id,sym:p.sym,tokens:p.tokens,note:why});log(`proposal: SELL ${p.sym} (${why})`)}
+ }
+ save();
+}
+
+async function approve(i){
+ const it=queue[i],c=cfg();if(!wallet)return alert('Connect Phantom first');
+ try{
+  const [a,b,amt]=it.type==='buy'?[SOL,it.mint,Math.round(c.size*1e9)]:[it.mint,SOL,it.tokens];
+  const q=await quote(a,b,amt);
+  if(c.dry){log(`DRY RUN ${it.type} ${it.sym}: would swap ${amt} of ${a.slice(0,4)} → ${q.outAmount} of ${b.slice(0,4)}`);commit(it,q.otherAmountThreshold);return}
+  const r=await fetch('https://api.jup.ag/swap/v1/swap',{method:'POST',headers:{'x-api-key':c.key,'Content-Type':'application/json'},
+   body:JSON.stringify({quoteResponse:q,userPublicKey:wallet,wrapAndUnwrapSol:true,dynamicComputeUnitLimit:true})});
+  if(!r.ok)throw new Error('swap '+r.status);
+  const {swapTransaction}=await r.json();
+  const tx=solanaWeb3.VersionedTransaction.deserialize(Uint8Array.from(atob(swapTransaction),ch=>ch.charCodeAt(0)));
+  const p=prov();
+  if(p){const {signature}=await p.signAndSendTransaction(tx);log(`sent ${it.type} ${it.sym}: https://solscan.io/tx/${signature}`);commit(it,q.otherAmountThreshold)}
+  else dlSend(tx,{it,tokens:q.otherAmountThreshold}); // opens Phantom app; result handled on return
+ }catch(e){log(e.code===4001?'rejected in Phantom - nothing was sent':'error: '+(e.message||e))}
+}
+const skip=i=>{const it=queue[i];if(it.type==='buy')S.cool[it.mint]=Date.now()+36e5;queue.splice(i,1);save();render()};
+function render(){
+ $('queue').innerHTML=queue.length?queue.map((q,i)=>`<div class="q"><span><b class="${q.type}">${q.type.toUpperCase()} ${q.sym}</b><br><small style="color:var(--mut)">${q.note}</small></span>
+  <span><button onclick="approve(${i})">Approve in Phantom</button><button class="g" onclick="skip(${i})">Skip</button></span></div>`).join(''):'<span style="color:var(--mut)">nothing pending</span>';
+ const ps=Object.entries(S.pos);
+ $('pos').innerHTML=ps.length?ps.map(([m,p])=>`${p.sym} · entry $${p.entry.toPrecision(4)} · ${((Date.now()-p.t)/36e5).toFixed(1)}h`).join('<br>'):'none';
+}
+let KPR=null,CONN=null;
+function loadKey(){const v=$('pk').value.trim();if(!v)return;
+ try{KPR=solanaWeb3.Keypair.fromSecretKey(b58d(v));CONN=new solanaWeb3.Connection(cfg().rpc,'confirmed');if(/api\.mainnet-beta\.solana\.com/.test(cfg().rpc))log('WARNING: the public Solana RPC blocks browsers (403). Use a Helius/QuickNode URL.');$('pk').value='';
+  wallet=KPR.publicKey.toString();$('addr').textContent='AUTO '+wallet.slice(0,4)+'…'+wallet.slice(-4);log('auto mode ON (burner '+wallet.slice(0,4)+'…)')}
+ catch(e){KPR=null;log('bad key: '+e.message)}}
+async function autoExec(it){
+ const c=cfg();
+ try{
+  let [a,b,amt]=it.type==='buy'?[SOL,it.mint,String(Math.round(c.size*1e9))]:[it.mint,SOL,String(it.tokens)];
+  if(!c.dry){
+   if(it.type==='buy'&&(await CONN.getBalance(KPR.publicKey))/1e9<c.size+0.02){queue=queue.filter(x=>x!==it);return log('insufficient SOL for '+it.sym)}
+   if(it.type==='sell'){const ta=await CONN.getParsedTokenAccountsByOwner(KPR.publicKey,{mint:new solanaWeb3.PublicKey(it.mint)});
+    amt=ta.value.reduce((s,x)=>s+BigInt(x.account.data.parsed.info.tokenAmount.amount),0n).toString();
+    if(amt==='0'){commit(it,0);return log('nothing to sell for '+it.sym)}}}
+  const q=await quote(a,b,amt);
+  if(c.dry){log(`DRY RUN ${it.type} ${it.sym}: ${amt} of ${a.slice(0,4)} → ${q.outAmount} of ${b.slice(0,4)}`);commit(it,q.otherAmountThreshold);return}
+  const r=await fetch('https://api.jup.ag/swap/v1/swap',{method:'POST',headers:{'x-api-key':c.key,'Content-Type':'application/json'},
+   body:JSON.stringify({quoteResponse:q,userPublicKey:wallet,wrapAndUnwrapSol:true,dynamicComputeUnitLimit:true})});
+  if(!r.ok)throw new Error('swap '+r.status);
+  const tx=solanaWeb3.VersionedTransaction.deserialize(Uint8Array.from(atob((await r.json()).swapTransaction),ch=>ch.charCodeAt(0)));
+  tx.sign([KPR]);const sig=await CONN.sendRawTransaction(tx.serialize(),{maxRetries:3});
+  const cf=await CONN.confirmTransaction(sig,'confirmed');if(cf.value.err)throw new Error('tx failed on-chain');
+  log(`AUTO ${it.type} ${it.sym}: https://solscan.io/tx/${sig}`);commit(it,q.otherAmountThreshold);
+ }catch(e){log('auto error: '+(e.message||e));queue=queue.filter(x=>x!==it);if(it.type==='buy')S.cool[it.mint]=Date.now()+36e5}
+}
+const wl=async()=>{try{await navigator.wakeLock.request('screen')}catch(e){}};
+document.addEventListener('visibilitychange',()=>{if(timer&&document.visibilityState==='visible')wl()});
+async function tick(){try{await manage();if(n++%6===0)await scan();if(KPR)for(const it of queue.slice())await autoExec(it)}catch(e){log('error: '+e.message)}render()}
+
+const prov=()=>window.phantom?.solana?.isPhantom?window.phantom.solana:null;
+function setWallet(pk){wallet=pk?pk.toString():null;$('addr').textContent=wallet?wallet.slice(0,4)+'…'+wallet.slice(-4):'not connected';$('conn').textContent=wallet?'Disconnect':'Connect Phantom'}
+// --- base58 + Phantom deeplink layer (used when no injected provider, e.g. phone browser / installed app) ---
+const A='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const b58e=u=>{const d=[];for(const x of u){let c=x;for(let i=0;i<d.length;i++){c+=d[i]<<8;d[i]=c%58;c=c/58|0}while(c){d.push(c%58);c=c/58|0}}let r='';for(const x of u){if(x)break;r+='1'}for(let i=d.length-1;i>=0;i--)r+=A[d[i]];return r};
+const b58d=t=>{const o=[];for(const ch of t){let c=A.indexOf(ch);for(let i=0;i<o.length;i++){c+=o[i]*58;o[i]=c&255;c>>=8}while(c){o.push(c&255);c>>=8}}for(const ch of t){if(ch!=='1')break;o.push(0)}return Uint8Array.from(o.reverse())};
+const KP=(()=>{const k=ls.get('pmk2');if(k)return nacl.box.keyPair.fromSecretKey(b58d(k));const p=nacl.box.keyPair();ls.set('pmk2',b58e(p.secretKey));return p})();
+const RL=location.origin+location.pathname,te=new TextEncoder(),td=new TextDecoder();let sh=null;
+const DL=(m,q)=>'https://phantom.app/ul/v1/'+m+'?'+new URLSearchParams(q);
+const setShared=pk=>{sh=nacl.box.before(b58d(pk),KP.secretKey)};
+const dlConnect=()=>{location.href=DL('connect',{app_url:location.origin,dapp_encryption_public_key:b58e(KP.publicKey),redirect_link:RL,cluster:'mainnet-beta'})};
+function dlSend(tx,pending){
+ if(!sh||!ls.get('pms'))return alert('Reconnect Phantom first');
+ ls.set('pmp',JSON.stringify(pending));const nonce=nacl.randomBytes(24);
+ const pl=nacl.box.after(te.encode(JSON.stringify({transaction:b58e(tx.serialize()),session:ls.get('pms')})),nonce,sh);
+ location.href=DL('signAndSendTransaction',{dapp_encryption_public_key:b58e(KP.publicKey),nonce:b58e(nonce),redirect_link:RL,payload:b58e(pl)})}
+const dec=u=>JSON.parse(td.decode(nacl.box.open.after(b58d(u.get('data')),b58d(u.get('nonce')),sh)));
+function handleReturn(){
+ const u=new URLSearchParams(location.search);if(!u.get('data')&&!u.get('errorCode'))return;
+ history.replaceState(null,'',location.pathname);
+ if(u.get('errorCode')){log('Phantom: '+(u.get('errorMessage')||u.get('errorCode'))+' - nothing was recorded');ls.set('pmp','');return}
+ try{
+  if(u.get('phantom_encryption_public_key')){ // connect response
+   const pk=u.get('phantom_encryption_public_key');setShared(pk);ls.set('pmx',pk);
+   const d=dec(u);ls.set('pms',d.session);ls.set('pmw',d.public_key);setWallet(d.public_key);log('connected via Phantom app');
+  }else{ // signAndSendTransaction response
+   const d=dec(u),p=JSON.parse(ls.get('pmp')||'null');
+   log('sent: https://solscan.io/tx/'+d.signature);if(p)commit(p.it,p.tokens);ls.set('pmp','');
+  }
+ }catch(e){log('return error: '+e.message)}}
+function commit(it,tokens){
+ if(it.type==='buy'){S.pos[it.mint]={sym:it.sym,entry:it.price,peak:it.price,t:Date.now(),tokens,slp:it.slp,tgt:it.tgt};S.buys.push(Date.now())}
+ else{delete S.pos[it.mint];S.cool[it.mint]=Date.now()+6*36e5}
+ queue=queue.filter(x=>!(x.mint===it.mint&&x.type===it.type));save();render()}
+
+$('conn').onclick=async()=>{const p=prov();
+ if(!p){if(wallet){['pmw','pms','pmx'].forEach(k=>ls.set(k,''));sh=null;setWallet(null)}else dlConnect();return}
+ if(wallet){await p.disconnect();return}
+ try{setWallet((await p.connect()).publicKey)}catch(e){log('connection rejected in Phantom')}};
+window.addEventListener('load',()=>{const p=prov();if(!p)return;
+ p.connect({onlyIfTrusted:true}).then(r=>setWallet(r.publicKey)).catch(()=>{});
+ p.on('connect',pk=>setWallet(pk));p.on('disconnect',()=>setWallet(null));
+ p.on('accountChanged',pk=>pk?setWallet(pk):p.connect().then(r=>setWallet(r.publicKey)).catch(()=>setWallet(null)))});
+$('go').onclick=()=>{if(!cfg().key)return alert('Enter your Jupiter API key');save();loadKey();wl();clearInterval(timer);n=0;tick();timer=setInterval(tick,30000);log('agent started (dry run: '+cfg().dry+')')};
+$('stop').onclick=()=>{clearInterval(timer);log('agent stopped')};
+$('reset').onclick=()=>{if(confirm('Clear positions and history?')){S={pos:{},cool:{},buys:[]};queue=[];save();render()}};
+if(ls.get('pmx'))setShared(ls.get('pmx'));if(ls.get('pmw'))setWallet(ls.get('pmw'));handleReturn();
+render();
+</script></body></html>

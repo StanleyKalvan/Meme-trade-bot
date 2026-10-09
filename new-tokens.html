@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="theme-color" content="#0f0e17">
+<title>Phantom New Tokens</title>
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.98.0/lib/index.iife.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tweetnacl@1.0.3/nacl.min.js"></script>
+<style>
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);--bg:#0f0e17;--card:#1b1a29;--fg:#eee;--mut:#9a98b0;--pri:#ab9ff2;--ok:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;max-width:720px;margin:auto}
+h1{font-size:20px;margin:0 0 12px}.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
+label{display:block;color:var(--mut);font-size:12px;margin:8px 0 2px}
+input,textarea,select{width:100%;padding:8px;border-radius:8px;border:1px solid #333;background:#0f0e17;color:var(--fg)}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+button{background:var(--pri);color:#111;border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer;margin:4px 4px 0 0}
+button.g{background:#2a2940;color:var(--fg)}.warn{color:var(--bad);font-size:12px}
+.q{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #2a2940;padding:8px 0}
+.buy{color:var(--ok)}.sell{color:var(--bad)}pre{white-space:pre-wrap;font-size:12px;color:var(--mut);max-height:220px;overflow:auto;margin:0}
+</style></head><body>
+<h1>🚀 Phantom New Tokens</h1>
+<div class="card warn">Hosted-copy note: this page can connect to Phantom, but it cannot reach Jupiter's API from here, so scanning and swaps are blocked. For full function, host this file on your own HTTPS site (Netlify/Vercel/GitHub Pages), open it in your phone browser and use Share > Add to Home Screen. Connect opens the Phantom app, and every trade is approved inside Phantom. It only runs while the app is open.</div>
+<div class="card">
+ <button id="conn">Connect Phantom</button> <span id="addr" style="color:var(--mut)">not connected</span>
+ <p class="warn">With a burner key entered the agent trades AUTOMATICALLY, with no approvals. Without a key it only proposes trades. It runs only while this page is open and the screen is on; it stops when the phone is off. Keep DRY RUN on until you've watched it for a few days.</p>
+</div>
+<div class="card">
+ <label>Jupiter API key (free at developers.jup.ag/portal; stored only in this browser)</label>
+ <input id="key" type="password" placeholder="x-api-key">
+ <div class="row">
+  <div><label>Buy size (SOL)</label><input id="size" type="number" value="0.02" step="0.01"></div>
+  <div><label>Slippage (bps)</label><input id="slip" type="number" value="300"></div>
+  <div><label>Max positions</label><input id="max" type="number" value="3"></div>
+  <div><label>Max buys / day</label><input id="mbd" type="number" value="6"></div>
+  <div><label>Stop loss %</label><input id="sl" type="number" value="15"></div>
+  <div><label>Take profit %</label><input id="tp" type="number" value="60"></div>
+  <div><label>Trail % (after +25%)</label><input id="tr" type="number" value="15"></div>
+  <div><label>Max daily loss (SOL)</label><input id="mdl" type="number" value="0.02" step="0.01"></div>
+  <div><label>Max price impact %</label><input id="imp" type="number" value="1" step="0.1"></div>
+  <div><label>Min round-trip % (buy then sell)</label><input id="rt" type="number" value="93"></div>
+  <div><label>Min organic score</label><input id="org" type="number" value="30"></div>
+  <div><label>Min liquidity / mcap %</label><input id="lmr" type="number" value="8"></div>
+  <div><label>Min reward / risk</label><input id="rr" type="number" value="1.5" step="0.1"></div>
+  <div><label>Min target % (dip entries)</label><input id="mtp" type="number" value="15"></div>
+  <div><label>Crash exit: drop % in 5 min (0 = off)</label><input id="crash" type="number" value="12"></div>
+  <div><label>Min liquidity $</label><input id="liq" type="number" value="20000"></div>
+  <div><label>Min mcap $</label><input id="mcap" type="number" value="30000"></div>
+  <div><label>Max mcap $</label><input id="maxm" type="number" value="10000000"></div>
+  <div><label>Min age (minutes)</label><input id="agem" type="number" value="300"></div>
+  <div><label>Max age (hours)</label><input id="ageh" type="number" value="720"></div>
+ </div>
+ <b>Reference tokens &amp; drawdown strategy</b>
+ <label>GeckoTerminal proxy URL (your Cloudflare Worker, https://…workers.dev). Needed for price history.</label>
+ <input id="proxy" placeholder="https://...workers.dev">
+ <label>Reference / watchlist tokens (names, symbols or mints, separated by commas)</label>
+ <textarea id="wl" rows="2">useless, super inu, zerebro, fartcoin, gigachad, doge</textarea>
+ <button class="g" id="resolve">1. Resolve watchlist</button><button class="g" id="analyze">2. Analyze history</button>
+ <div id="sugg"></div>
+ <label><input id="wlok" type="checkbox" style="width:auto"> I checked in the log that the resolved mints are the real tokens</label>
+ <label><input id="ddon" type="checkbox" style="width:auto"> Buy dips on watchlist tokens older than 30 days</label>
+ <div class="row">
+  <div><label>Min drop from 90d high %</label><input id="ddp" type="number" value="40"></div>
+  <div><label>Max above 30d low %</label><input id="abv" type="number" value="25"></div>
+  <div><label>Dip stop loss %</label><input id="bsl" type="number" value="20"></div>
+  <div><label>Dip take profit %</label><input id="btp" type="number" value="45"></div>
+  <div><label>Dip max hold (days)</label><input id="bmx" type="number" value="14"></div>
+  <div><label>Dip min mcap $</label><input id="bmin" type="number" value="1000000"></div>
+ </div>
+ <label>AUTO MODE: burner wallet private key (base58). Kept in memory only, re-enter each time you open the app. Empty = approval mode.</label>
+ <input id="pk" type="password" placeholder="burner key">
+ <label>RPC URL (use your own Helius/QuickNode key for reliability)</label><input id="rpc" value="https://api.mainnet-beta.solana.com">
+ <label>Allowlist (optional, mints separated by space/newline). Empty = recently launched Jupiter tokens that pass the filters.</label>
+ <textarea id="allow" rows="2"></textarea>
+ <label>Entry style</label>
+ <select id="mode"><option value="dip">Pullback: buy the dip after a pump (recommended)</option><option value="launch">Launch: new tokens climbing since release on Jupiter (QI-style)</option><option value="mom">Momentum: buy strength (old)</option></select>
+ <div class="row">
+  <div><label>Look-back window (hours)</label><input id="lb" type="number" value="24"></div>
+  <div><label>Min drop from window high %</label><input id="ddmin" type="number" value="10"></div>
+  <div><label>Max drop from window high %</label><input id="ddmax" type="number" value="45"></div>
+  <div><label>Max above window low %</label><input id="ab24" type="number" value="12"></div>
+  <div><label>Max jump in last hour %</label><input id="bmax" type="number" value="6"></div>
+  <div><label>Min window range % (high/low)</label><input id="run" type="number" value="15"></div>
+ </div>
+ <b>Launch mode: counted from the first pool on Jupiter</b>
+ <div class="row">
+  <div><label>Launch: min age (minutes)</label><input id="lmin" type="number" value="25"></div>
+  <div><label>Launch: max age (hours)</label><input id="lmax" type="number" value="6"></div>
+  <div><label>Min gain since launch %</label><input id="lgain" type="number" value="100"></div>
+  <div><label>Pullback from high min %</label><input id="lpmin" type="number" value="6"></div>
+  <div><label>Pullback from high max %</label><input id="lpmax" type="number" value="30"></div>
+  <div><label>Min holders</label><input id="lh" type="number" value="150"></div>
+  <div><label>Min traders (1h)</label><input id="ltr" type="number" value="40"></div>
+ </div>
+ <label>Token check before buying (Phantom takes its verification marks from Jupiter and CoinGecko)</label>
+ <select id="ver"><option value="spam">Block spam signs and copycats of verified tokens</option><option value="strict">Verified only (Jupiter verified or CoinGecko-listed)</option><option value="off">Off</option></select>
+ <label><input id="strict" type="checkbox" checked style="width:auto"> Strict: require mint &amp; freeze authority to be disabled</label>
+ <label><input id="t22" type="checkbox" style="width:auto"> Allow Token-2022 tokens (riskier: may have transfer fees/hooks; the buy-sell test still applies)</label>
+ <label><input id="dry" type="checkbox" checked style="width:auto"> DRY RUN (simulate, never send transactions)</label>
+ <button id="go">Start agent</button><button class="g" id="stop">Stop</button><button class="g" id="reset">Reset state</button>
+</div>
+<div class="card"><b>Pending approvals</b><div id="queue"></div></div>
+<div class="card"><b>Positions</b><div id="pos" style="color:var(--mut)">none</div></div>
+<div class="card"><b>Journal</b> <button class="g" id="jcopy">Copy CSV</button><button class="g" id="jclear">Clear</button><div id="jr" style="color:var(--mut);margin-top:6px">no closed trades yet</div></div>
+<div class="card"><b>Log</b><pre id="log"></pre></div>
+<script>
+const $=id=>document.getElementById(id),SOL='So11111111111111111111111111111111111111112',
+ TP='TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+ SKIP=new Set([SOL,'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v','Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB','JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN']);
+const ls={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let S=JSON.parse(ls.get('pna')||'{"pos":{},"cool":{},"buys":[]}'),wallet=null,queue=[],timer=null,n=0;
+$('key').value=ls.get('pmk')||'';$('proxy').value=ls.get('pmpx')||'';
+const save=()=>{ls.set('pna',JSON.stringify(S));ls.set('pmk',$('key').value);ls.set('pmpx',$('proxy').value)};
+const log=m=>{$('log').textContent=new Date().toLocaleTimeString()+'  '+m+'\n'+$('log').textContent.slice(0,5000)};
+const cfg=()=>({key:$('key').value.trim(),size:+$('size').value,slip:+$('slip').value,max:+$('max').value,mbd:+$('mbd').value,
+ sl:+$('sl').value/100,tp:+$('tp').value/100,tr:+$('tr').value/100,mdl:+$('mdl').value,imp:+$('imp').value,rt:+$('rt').value/100,org:+$('org').value,lmr:+$('lmr').value,rr:+$('rr').value,mtp:+$('mtp').value,mode:$('mode').value,lmin:+$('lmin').value,lmax:+$('lmax').value*60,lgain:+$('lgain').value,lpmin:+$('lpmin').value,lpmax:+$('lpmax').value,lh:+$('lh').value,ltr:+$('ltr').value,ddmin:+$('ddmin').value,ddmax:+$('ddmax').value,run:+$('run').value,lb:+$('lb').value,ab24:+$('ab24').value,bmax:+$('bmax').value,ver:$('ver').value,proxy:$('proxy').value.trim(),wlok:$('wlok').checked,ddon:$('ddon').checked,ddp:+$('ddp').value,abv:+$('abv').value,bsl:+$('bsl').value/100,btp:+$('btp').value/100,bmx:+$('bmx').value,bmin:+$('bmin').value,crash:+$('crash').value,liq:+$('liq').value,mcap:+$('mcap').value,maxm:+$('maxm').value,
+ agem:+$('agem').value,ageh:+$('ageh').value,rpc:$('rpc').value.trim(),dry:$('dry').checked,strict:$('strict').checked,t22:$('t22').checked,
+ allow:$('allow').value.split(/\s+/).filter(Boolean)});
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let jchain=Promise.resolve(); // Jupiter calls run one at a time (~1/sec) and retry on 429, so the free key's rate limit is not hit
+const jf=p=>{const job=jchain.then(async()=>{
+ for(let i=0;i<4;i++){
+  const r=await fetch('https://api.jup.ag'+p,{headers:{'x-api-key':cfg().key}});
+  if(r.status===429){await sleep(1500*(i+1));continue}
+  if(!r.ok)throw new Error(p.split('?')[0]+' '+r.status);
+  const out=await r.json();await sleep(1100);return out}
+ throw new Error(p.split('?')[0]+' 429 (rate limit)')});
+ jchain=job.catch(()=>{});return job};
+const quote=(a,b,amt,slip)=>jf(`/swap/v1/quote?inputMint=${a}&outputMint=${b}&amount=${amt}&slippageBps=${slip||cfg().slip}`);
+// ---- price history (GeckoTerminal via your proxy), watchlist, calibration and dip strategy ----
+const gj=async u=>{let px=cfg().proxy.replace(/\/+$/,'');if(px&&!/^https?:\/\//i.test(px))px='https://'+px;
+ if(!px)throw new Error('set the proxy URL');let r;try{r=await fetch(px+u)}catch(e){throw new Error('proxy unreachable')}
+ if(!r.ok)throw new Error('gecko HTTP '+r.status);return r.json()};
+const CAND=JSON.parse(ls.get('pmcand')||'{}');
+async function candles(id){const c=CAND[id];if(c&&Date.now()-c.at<216e5)return c.rows;
+ S.pool=S.pool||{};if(!S.pool[id]){S.pool[id]=(await gj(`/networks/solana/tokens/${id}/pools?page=1`)).data[0].attributes.address;save()}
+ await sleep(2500);
+ const rows=(await gj(`/networks/solana/pools/${S.pool[id]}/ohlcv/day?limit=1000`)).data.attributes.ohlcv_list.slice().sort((a,b)=>a[0]-b[0]); // oldest first
+ CAND[id]={at:Date.now(),rows};ls.set('pmcand',JSON.stringify(CAND));await sleep(2500);return rows}
+const isMint=x=>/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(x);
+async function resolveWL(){
+ const terms=$('wl').value.split(/[,\n]+/).map(x=>x.trim()).filter(Boolean);S.wl={};
+ for(const q of terms){
+  try{const ql=q.toLowerCase(),r=await jf('/tokens/v2/search?query='+encodeURIComponent(q));
+   const m=r.filter(t=>isMint(q)?t.id===q:(t.symbol||'').toLowerCase()===ql||(t.name||'').toLowerCase().includes(ql))
+    .sort((a,b)=>(!!verified(b)-!!verified(a))||((b.liquidity||0)-(a.liquidity||0)))[0];
+   if(!m||(m.liquidity||0)<1e5){log(`resolve "${q}": no liquid match`);continue}
+   S.wl[m.id]={sym:m.symbol,q};
+   log(`resolved "${q}" → ${m.symbol} ${m.id} | mcap $${((m.mcap||0)/1e6).toFixed(1)}M | liq $${Math.round((m.liquidity||0)/1e3)}k | ${verified(m)?'verified':'NOT verified'}`)}
+  catch(e){log(`resolve "${q}": ${e.message}`)}}
+ save()}
+function stats(rows){ // rows oldest-first [ts,o,h,l,c,v]
+ if(rows.length<120)return null;
+ const rg=rows.slice(0,30).map(r=>(r[2]-r[3])/r[1]).sort((a,b)=>a-b);
+ let ath=0,ai=0,pk=0,mdd=0;rows.forEach((r,i)=>{if(r[2]>ath){ath=r[2];ai=i}pk=Math.max(pk,r[2]);mdd=Math.min(mdd,r[3]/pk-1)});
+ return {n:rows.length,med:rg[rg.length>>1],run7:Math.max(...rows.slice(1,8).map(r=>r[2]))/rows[0][4]-1,athDay:ai,mdd}}
+function backtest(rows,P){ // signal on a green daily close near lows after a deep drop; enter next open; stop checked before target
+ const tr=[];let i=90;
+ while(i<rows.length-2){
+  const hi=Math.max(...rows.slice(i-89,i+1).map(r=>r[2])),lo=Math.min(...rows.slice(i-29,i+1).map(r=>r[3])),c=rows[i][4];
+  if(c<=hi*(1-P.dd)&&c<=lo*(1+P.abv)&&c>=rows[i][1]){
+   const e=rows[i+1][1];let x=null,j=i+1;
+   for(;j<rows.length&&j<=i+P.maxd;j++){if(rows[j][3]<=e*(1-P.sl)){x=-P.sl;break}if(rows[j][2]>=e*(1+P.tp)){x=P.tp;break}}
+   if(x===null)x=rows[Math.min(j,rows.length-1)][4]/e-1;
+   tr.push(x);i=j+1}
+  else i++}
+ return tr}
+let SG=null;
+async function analyze(){
+ const ids=Object.keys(S.wl||{});if(!ids.length)return log('Resolve the watchlist first');
+ const st=[],all={};
+ for(const id of ids){try{const rows=await candles(id),s=stats(rows);if(!s){log(`${S.wl[id].sym}: not enough history`);continue}
+   st.push(s);all[id]=rows;
+   log(`${S.wl[id].sym}: ${s.n}d | median daily range ${(s.med*100).toFixed(0)}% | first-week run-up +${(s.run7*100).toFixed(0)}% | ATH on day ${s.athDay} | max drawdown ${(s.mdd*100).toFixed(0)}%`)}
+  catch(e){log(`${S.wl[id].sym}: ${e.message}`)}}
+ if(!st.length)return;
+ const md=a=>a.slice().sort((x,y)=>x-y)[a.length>>1],cl=(x,a,b)=>Math.max(a,Math.min(b,x));
+ const A={sl:cl(Math.round(md(st.map(s=>s.med))*150),12,30),tr:cl(Math.round(md(st.map(s=>s.med))*100),10,25),tp:cl(Math.round(md(st.map(s=>s.run7))*50),30,120)};
+ let best=null;
+ for(const sl of[.1,.15,.2,.25])for(const tp of[.25,.35,.45,.6]){const tr=[];
+  for(const id in all)tr.push(...backtest(all[id],{dd:+$('ddp').value/100,abv:+$('abv').value/100,sl,tp,maxd:+$('bmx').value}));
+  if(tr.length<5)continue;const avg=tr.reduce((a,b)=>a+b,0)/tr.length;
+  if(!best||avg>best.avg)best={sl,tp,avg,n:tr.length,win:tr.filter(x=>x>0).length/tr.length}}
+ SG={A,best};
+ $('sugg').innerHTML=`<div class="card"><b>Suggested from ${st.length} reference tokens</b><br>New tokens: stop ${A.sl}%, trail ${A.tr}%, take profit ${A.tp}%<br>`+
+  (best?`Dip strategy backtest (${best.n} trades, daily bars): stop ${best.sl*100}%, take profit ${best.tp*100}% → avg ${(best.avg*100).toFixed(1)}% per trade, ${(best.win*100).toFixed(0)}% winners`:'Dip strategy: too few signals in the history')+
+  `<br><small style="color:var(--mut)">These tokens are survivors, so real results will be worse. Indicative only.</small><br><button id="apply">Apply</button></div>`;
+ $('apply').onclick=()=>{$('sl').value=A.sl;$('tr').value=A.tr;$('tp').value=A.tp;if(best){$('bsl').value=best.sl*100;$('btp').value=best.tp*100}log('suggested values applied')}}
+async function scanB(c){ // buy dips on resolved watchlist tokens older than 30 days
+ if(!c.ddon||!c.wlok)return;
+ const ids=Object.keys(S.wl||{}).filter(id=>!S.pos[id]&&!queue.some(q=>q.mint===id)&&(S.cool[id]||0)<Date.now());
+ if(!ids.length)return;
+ for(const t of await jf('/tokens/v2/search?query='+ids.join(','))){
+  const age=(Date.now()-Date.parse((t.firstPool||{}).createdAt))/864e5,a=t.audit||{},s1=t.stats1h||{},p=t.usdPrice;
+  if(!(age>=30)||!(t.mcap>=c.bmin)||(t.liquidity||0)<c.liq||a.isSus||!(p>0))continue;
+  const gr=await gate(t,c);if(gr){log(`skip ${t.symbol}: ${gr}`);S.cool[t.id]=Date.now()+36e5;continue}
+  if(!(s1.priceChange>=0)||(s1.numBuys||0)<(s1.numSells||0))continue; // wait for a bounce
+  let rows;try{rows=await candles(t.id)}catch(e){log('history '+t.symbol+': '+e.message);S.cool[t.id]=Date.now()+18e5;continue}
+  const hi=Math.max(...rows.slice(-90).map(r=>r[2])),lo=Math.min(...rows.slice(-30).map(r=>r[3])),dd=1-p/hi,ab=p/lo-1;
+  if(dd<c.ddp/100||ab>c.abv/100)continue;
+  const lam=Math.round(c.size*1e9),q=await quote(SOL,t.id,lam);if(+q.priceImpactPct>c.imp/100)continue;
+  const b=await quote(t.id,SOL,q.outAmount);
+  if(b.outAmount/lam<c.rt){S.cool[t.id]=Date.now()+36e5;log(`skip ${t.symbol}: round-trip ${(b.outAmount/lam*100).toFixed(0)}%`);continue}
+  queue.push({type:'buy',mint:t.id,sym:t.symbol,price:p,sol:c.size,strat:'dip',psl:c.bsl,ptp:c.btp,pmax:c.bmx*24,
+   note:`DIP -${(dd*100).toFixed(0)}% from 90d high | ${(ab*100).toFixed(0)}% above 30d low | mcap $${((t.mcap||0)/1e6).toFixed(1)}M`});
+  log(`proposal: BUY ${t.symbol} (dip)`);return}}
+const C5={},PBT={};let UNI=null;
+async function candles5(id,c){const hit=C5[id];if(hit&&Date.now()-hit.at<9e4)return hit.rows;
+ S.pool=S.pool||{};if(!S.pool[id]){S.pool[id]=(await gj(`/networks/solana/tokens/${id}/pools?page=1`)).data[0].attributes.address;save()}
+ const rows=(await gj(`/networks/solana/pools/${S.pool[id]}/ohlcv/minute?aggregate=5&limit=${Math.min(1000,Math.round((c.lb||24)*12)+24)}`)).data.attributes.ohlcv_list.slice().sort((a,b)=>a[0]-b[0]); // oldest first
+ C5[id]={at:Date.now(),rows};return rows}
+let PBW=null; // why the last pullback check said no (shown in the log)
+function pullback(rows,p,c){ // buy near the LOW of the look-back window (default: last 24h), after a real drop, once buyers return - not after a spike
+ const n=Math.round((c.lb||24)*12);if(rows.length<Math.min(n,60)){PBW={w:'not enough history'};return null}
+ const d=rows.slice(-n);
+ const hi=Math.max(...d.map(r=>r[2])),lo=Math.min(...d.map(r=>r[3]));
+ const dd=1-p/hi,above=p/lo-1,range=hi/lo-1;               // drop from the window high, distance above the window low
+ const rlo=Math.min(...d.slice(-12).map(r=>r[3])),jump=p/rlo-1; // how far price already jumped within the last hour
+ const last=d[d.length-1],prev=d[d.length-2],green=last[4]>last[1]||last[4]>prev[4]; // buyers stepping in
+ const no=w=>{PBW={w,above,dd,jump,range};return null};
+ if(range<c.run/100)return no('window range too small');
+ if(dd<c.ddmin/100)return no('drop from high too small');
+ if(dd>c.ddmax/100)return no('drop too deep');
+ if(above>c.ab24/100)return no('too far above the low');
+ if(jump>c.bmax/100)return no('jumped in the last hour');
+ if(jump<.005)return no('no bounce yet');
+ if(!green)return no('last candle red');
+ return {hi,lo,dd,above,jump,range,
+  psl:Math.min(c.sl,Math.max(.05,1-lo*0.96/p)), // stop just below the window low
+  ptp:Math.max(.10,Math.min(c.tp,hi/p-1))}}     // target: return toward the window high
+function launchEntry(rows,p,c){ // QI-style: a token that keeps climbing since its Jupiter release; buy the first healthy pullback, not the spike
+ if(rows.length<5){PBW={w:'not enough candles yet'};return null}
+ const d=rows.slice(-72); // up to ~6 hours of 5-minute candles
+ const first=d[0][1],hi=Math.max(...d.map(r=>r[2])),dd=1-p/hi,gain=p/first-1;
+ const low3=Math.min(...d.slice(-3).map(r=>r[3])),prevLow=d.length>=9?Math.min(...d.slice(-9,-3).map(r=>r[3])):0; // higher-low check
+ const jump=p/Math.min(...d.slice(-12).map(r=>r[3]))-1,bounce=p/low3-1;
+ const last=d[d.length-1],prev=d[d.length-2],green=last[4]>last[1]||last[4]>prev[4];
+ const no=w=>{PBW={w,above:bounce,dd,jump,range:gain};return null};
+ if(gain<c.lgain/100)return no('gain since launch too small');
+ if(dd<c.lpmin/100)return no('no pullback yet (near the high)');
+ if(dd>c.lpmax/100)return no('pullback too deep');
+ if(prevLow&&low3<prevLow*0.95)return no('making lower lows');
+ if(bounce<.01)return no('no bounce yet');
+ if(bounce>.08)return no('already bounced');
+ if(!green)return no('last candle red');
+ return {hi,lo:low3,dd,above:bounce,jump,range:gain,kind:'LAUNCH',
+  psl:Math.min(c.sl,Math.max(.08,1-low3*0.95/p)), // stop just below the pullback low
+  ptp:Math.max(.12,Math.min(c.tp,hi/p-1))}}       // target: retest of the high
+const SPAM=/airdrop|claim|reward|giveaway|bonus|voucher|visit|https?:|www\.|\.(com|io|xyz|net|org|app|top|site|vip)\b|t\.me|telegram|free\s*(sol|usdc|token)|\bgift\b/i;
+const CGC=JSON.parse(ls.get('pmcg')||'{}'),GATE={};
+async function cgListed(id){const c=CGC[id];if(c&&Date.now()-c.at<864e5)return c.v;
+ const v=!!(await gj('/cg/contract/'+id)).listed;CGC[id]={at:Date.now(),v};ls.set('pmcg',JSON.stringify(CGC));await sleep(2500);return v}
+async function gate(t,c){ // returns null if the token may be bought, otherwise the reason
+ if(c.ver==='off')return null;
+ const k=t.id+c.ver,g=GATE[k];if(g&&Date.now()-g.at<36e5)return g.r;
+ let r=null;
+ if(c.ver==='strict'){
+  if(!verified(t)){let ok=false;try{ok=await cgListed(t.id)}catch(e){}if(!ok)r='not verified (Jupiter/CoinGecko)'}}
+ else{
+  if((t.audit||{}).isSus)r='flagged suspicious';
+  else if(SPAM.test((t.name||'')+' '+(t.symbol||'')))r='spam-like name';
+  else if(!verified(t)){
+   const x=(await jf('/tokens/v2/search?query='+encodeURIComponent(t.symbol||t.id))).find(y=>y.id!==t.id&&verified(y)&&((y.symbol||'').toLowerCase()===(t.symbol||'').toLowerCase()||(y.name||'').toLowerCase()===(t.name||'').toLowerCase()));
+   if(x)r=`copy of verified ${x.symbol} (${x.id.slice(0,4)}…)`}}
+ GATE[k]={at:Date.now(),r};return r}
+const verified=t=>t.isVerified||(t.tags||[]).includes('verified');
+
+function why(t,c){ // returns the reason a token is rejected, or null if it passes
+ if(SKIP.has(t.id)||(t.tags||[]).some(x=>['lst','stocks','stablecoin'].includes(x)))return 'category';
+ if(!(t.usdPrice>0))return 'no price';
+ if(c.allow.length&&!c.allow.includes(t.id))return 'not in allowlist';
+ const ageM=(Date.now()-Date.parse((t.firstPool||{}).createdAt))/6e4;
+ if(isNaN(ageM))return 'no age data';
+ const L=c.mode==='launch'; // launch mode: age counted from the first pool created on Jupiter
+ if(ageM<(L?c.lmin:c.agem))return 'too young';
+ if(ageM>(L?c.lmax:c.ageh*60))return 'too old';
+ if(!(t.mcap>=c.mcap))return 'mcap low';
+ if(t.mcap>c.maxm)return 'mcap high';
+ if(t.tokenProgram&&t.tokenProgram!==TP&&!c.t22)return 'token-2022';
+ const a=t.audit||{};
+ if(a.isSus)return 'flagged suspicious';
+ if(c.strict?(a.mintAuthorityDisabled!==true||a.freezeAuthorityDisabled!==true):(a.mintAuthorityDisabled===false||a.freezeAuthorityDisabled===false))return 'authorities not disabled';
+ if((a.topHoldersPercentage||0)>40)return 'top holders >40%';
+ if((t.liquidity||0)<c.liq)return 'low liquidity';
+ if((t.holderCount||0)<(L?c.lh:50))return 'few holders';
+ if(t.organicScore!==undefined&&t.organicScore<c.org)return 'low organic score';
+ if((t.liquidity||0)<(t.mcap||0)*c.lmr/100)return 'thin liquidity vs mcap';
+ const s1=t.stats1h||{},s5=t.stats5m||{};
+ if((s1.numTraders||0)<(L?c.ltr:20))return 'few traders';
+ const br=(s1.numBuys||0)/Math.max(s1.numSells||0,1);
+ if(c.mode==='dip'||L){ // the token is expected to be in a pullback: only reject a hard fall or sellers fully in control
+  if(s1.priceChange<-25)return 'falling hard';if(!L&&s1.priceChange>150)return 'already pumped';if((s5.numBuys||0)<0.75*(s5.numSells||0))return 'sellers in last 5m'}
+ else{
+  if(!(s1.priceChange>=2))return 'no 1h momentum';
+  if(s1.priceChange>150)return 'already pumped';
+  if((s5.priceChange||0)<-3)return 'falling last 5m';
+  if(br<1.1)return 'sell pressure'}
+ return null;
+}
+const ok=(t,c)=>!why(t,c);
+
+async function scan(){
+ const c=cfg(),day=Date.now()-864e5;S.buys=S.buys.filter(x=>x>day);S.pnl=(S.pnl||[]).filter(x=>x[0]>day);
+ const open=Object.keys(S.pos).length+queue.filter(q=>q.type==='buy').length;
+ if(open>=c.max||S.buys.length>=c.mbd)return;
+ if(-S.pnl.reduce((s,x)=>s+x[1],0)>=c.mdl)return log('daily loss limit reached - no new buys');
+ try{await scanB(c)}catch(e){log('dip scan: '+e.message)}
+ if(queue.some(q=>q.type==='buy'))return;
+ if(!UNI||Date.now()-UNI.at>18e4)UNI={at:Date.now(),list:[...new Map((await Promise.all(['/tokens/v2/recent','/tokens/v2/toptrending/5m?limit=100','/tokens/v2/toptrending/1h?limit=100','/tokens/v2/toptrending/6h?limit=100','/tokens/v2/toptraded/1h?limit=100','/tokens/v2/toptraded/24h?limit=100','/tokens/v2/toporganicscore/1h?limit=100','/tokens/v2/toporganicscore/24h?limit=100'].map(u=>jf(u).catch(()=>[])))).flat().map(t=>[t.id,t])).values()]};
+ const uni=UNI.list;
+ const short=uni.filter(t=>!S.pos[t.id]&&!queue.some(q=>q.mint===t.id)&&(S.cool[t.id]||0)<Date.now()&&ok(t,c))
+  .sort((a,b)=>c.mode==='launch'?((b.stats1h||{}).numTraders||0)-((a.stats1h||{}).numTraders||0):c.mode==='dip'?((a.stats6h||{}).priceChange??a.stats1h.priceChange)-((b.stats6h||{}).priceChange??b.stats1h.priceChange):b.stats1h.priceChange-a.stats1h.priceChange).slice(0,14);
+ log(`scan: ${uni.length} tokens, ${short.length} pass filters`);
+ {const rc={};for(const t of uni){if(S.pos[t.id])continue;const w=why(t,c);if(w)rc[w]=(rc[w]||0)+1}
+  log('rejected: '+(Object.entries(rc).sort((x,y)=>y[1]-x[1]).map(([k,v])=>k+' '+v).join(', ')||'none'))}
+ if(!short.length)return;
+ const fresh=await jf('/tokens/v2/search?query='+short.map(t=>t.id).join(','));
+ let pbn=0,pbtot=0,near=null;const pbs={}; // funnel statistics for the log
+ for(const t of fresh){
+  if(!ok(t,c))continue;
+  const gr=await gate(t,c);if(gr){log(`skip ${t.symbol}: ${gr}`);S.cool[t.id]=Date.now()+36e5;continue}
+  let pb=null;
+  if(c.mode==='dip'||c.mode==='launch'){
+   if(Date.now()-(PBT[t.id]||0)<12e4)continue;if(++pbn>8)break;PBT[t.id]=Date.now(); // limit history requests per scan; recheck a token at most every 2 minutes
+   try{const rows=await candles5(t.id,c);pb=(c.mode==='launch'?launchEntry:pullback)(rows,t.usdPrice,c)}catch(e){log('pullback '+t.symbol+': '+e.message);continue}
+   pbtot++;if(!pb){const w=(PBW||{}).w||'?';pbs[w]=(pbs[w]||0)+1;if(PBW&&PBW.above>=0&&(!near||PBW.above<near.above))near={sym:t.symbol,...PBW};continue}
+   if(pb.ptp<c.rr*pb.psl||pb.ptp<c.mtp/100){pbs['target too small vs stop']=(pbs['target too small vs stop']||0)+1;log(`skip ${t.symbol}: target +${(pb.ptp*100).toFixed(0)}% vs stop -${(pb.psl*100).toFixed(0)}%`);continue}}
+  const lam=Math.round(c.size*1e9),q=await quote(SOL,t.id,lam);
+  if(+q.priceImpactPct>c.imp/100)continue;
+  const b=await quote(t.id,SOL,q.outAmount); // honeypot / tax proxy
+  if(b.outAmount/lam<c.rt){S.cool[t.id]=Date.now()+36e5;log(`skip ${t.symbol}: round-trip ${(b.outAmount/lam*100).toFixed(0)}%`);continue}
+  queue.push({type:'buy',mint:t.id,sym:t.symbol,price:t.usdPrice,sol:c.size,mode:c.mode,...(pb?{psl:pb.psl,ptp:pb.ptp,pmax:pb.kind==='LAUNCH'?3:12}:{}),note:`${pb?(pb.kind||'DIP')+' -'+(pb.dd*100).toFixed(0)+'% from high, +'+(pb.above*100).toFixed(0)+'% above low | ':''}NEW ${Math.round((Date.now()-Date.parse(t.firstPool.createdAt))/6e4)}min | 1h ${t.stats1h.priceChange.toFixed(0)}% | liq $${Math.round(t.liquidity/1e3)}k | mcap $${Math.round(t.mcap/1e3)}k`});
+  log(`proposal: BUY ${t.symbol}`);break;
+ }
+ if(pbtot)log(`pullback check of ${pbtot} token(s): `+(Object.entries(pbs).map(([k,v])=>k+' '+v).join(', ')||'all passed')+(near?` | closest: ${near.sym} +${(near.above*100).toFixed(0)}% above low, -${(near.dd*100).toFixed(0)}% from high`:''))
+}
+
+async function manage(){
+ const mints=Object.keys(S.pos);if(!mints.length)return;
+ const live=await jf('/tokens/v2/search?query='+mints.join(','));const c=cfg();
+ for(const t of live){
+  const p=S.pos[t.id];if(!p||queue.some(q=>q.mint===t.id))continue;
+  p.peak=Math.max(p.peak,t.usdPrice);p.low=Math.min(p.low||p.entry,t.usdPrice);
+  const now=Date.now();p.hist=(p.hist||[]).filter(x=>now-x[0]<=3e5);p.hist.push([now,t.usdPrice]);
+  const d5=t.usdPrice/Math.max(...p.hist.map(x=>x[1]))-1,s5=(t.stats5m||{}).priceChange;const chg=t.usdPrice/p.entry-1,pk=p.peak/p.entry-1,h=(Date.now()-p.t)/36e5;
+  const cr=c.crash>0&&p.hist.length>=2&&(d5<=-c.crash/100||s5<=-c.crash);p.ch=cr?(p.ch||0)+1:0; // crash must show in two checks in a row
+  let why=null,urgent=false;
+  if((t.audit||{}).isSus)why='flagged suspicious';
+  else if(p.ch>=2){why=`sharp drop ${Math.min(d5*100,s5<0?s5:0).toFixed(0)}% in 5 min`;urgent=true}
+  else if(p.slp&&t.usdPrice<=p.slp)why='support broken';else if(p.tgt&&t.usdPrice>=p.tgt*.98)why='resistance target';
+  else if(chg<=-(p.psl??c.sl))why=`stop loss ${(chg*100).toFixed(0)}%`;else if(chg>=(p.ptp??c.tp))why=`take profit +${(chg*100).toFixed(0)}%`;
+  else if(pk>=Math.min(.25,(p.ptp??c.tp)*.5)&&t.usdPrice<=p.peak*(1-Math.min(c.tr,(p.ptp??c.tp)*.6)))why=`trailing stop (peak +${(pk*100).toFixed(0)}%)`;
+  else if(h>=(p.pmax??6))why='time stop';else if((t.liquidity||0)<c.liq/3)why='liquidity collapse';
+  if(why){queue.push({type:'sell',mint:t.id,sym:p.sym,tokens:p.tokens,note:why,urgent,px:t.usdPrice});log(`proposal: SELL ${p.sym} (${why})`)}
+ }
+ save();
+}
+
+async function approve(i){
+ const it=queue[i],c=cfg();if(!wallet)return alert('Connect Phantom first');
+ try{
+  const [a,b,amt]=it.type==='buy'?[SOL,it.mint,Math.round(c.size*1e9)]:[it.mint,SOL,it.tokens];
+  const q=await quote(a,b,amt,it.urgent?1500:0);
+  if(c.dry){log(`DRY RUN ${it.type} ${it.sym}: would swap ${amt} of ${a.slice(0,4)} → ${q.outAmount} of ${b.slice(0,4)}`);commit(it,q.otherAmountThreshold,q.outAmount);return}
+  const r=await fetch('https://api.jup.ag/swap/v1/swap',{method:'POST',headers:{'x-api-key':c.key,'Content-Type':'application/json'},
+   body:JSON.stringify({quoteResponse:q,userPublicKey:wallet,wrapAndUnwrapSol:true,dynamicComputeUnitLimit:true})});
+  if(!r.ok)throw new Error('swap '+r.status);
+  const {swapTransaction}=await r.json();
+  const tx=solanaWeb3.VersionedTransaction.deserialize(Uint8Array.from(atob(swapTransaction),ch=>ch.charCodeAt(0)));
+  const p=prov();
+  if(p){const {signature}=await p.signAndSendTransaction(tx);log(`sent ${it.type} ${it.sym}: https://solscan.io/tx/${signature}`);commit(it,q.otherAmountThreshold,q.outAmount)}
+  else dlSend(tx,{it,tokens:q.otherAmountThreshold}); // opens Phantom app; result handled on return
+ }catch(e){log(e.code===4001?'rejected in Phantom - nothing was sent':'error: '+(e.message||e))}
+}
+const skip=i=>{const it=queue[i];if(it.type==='buy')S.cool[it.mint]=Date.now()+36e5;queue.splice(i,1);save();render()};
+function journalHTML(){const j=S.journal||[];if(!j.length)return 'no closed trades yet';
+ const w=j.filter(x=>x.pnl>0).length,avg=j.reduce((a,x)=>a+x.pct,0)/j.length,hold=j.reduce((a,x)=>a+x.h,0)/j.length;
+ return `<div>${j.length} trades | winners ${(w/j.length*100).toFixed(0)}% | avg ${avg.toFixed(1)}% | avg hold ${hold.toFixed(1)}h | total ${j.reduce((a,x)=>a+x.pnl,0).toFixed(4)} SOL</div>`+
+  j.slice(-10).reverse().map(x=>`<div style="border-top:1px solid #2a2940;padding:4px 0">${x.sym} <b class="${x.pct>=0?'buy':'sell'}">${x.pct>=0?'+':''}${x.pct.toFixed(1)}%</b> · ${x.h.toFixed(1)}h · ${x.why}<br><small>max up +${x.up.toFixed(0)}% / max down ${x.dn.toFixed(0)}% ${x.mode?'· '+x.mode:''}</small></div>`).join('')}
+function render(){if($('jr'))$('jr').innerHTML=journalHTML();
+ $('queue').innerHTML=queue.length?queue.map((q,i)=>`<div class="q"><span><b class="${q.type}">${q.type.toUpperCase()} ${q.sym}</b><br><small style="color:var(--mut)">${q.note}</small></span>
+  <span><button onclick="approve(${i})">Approve in Phantom</button><button class="g" onclick="skip(${i})">Skip</button></span></div>`).join(''):'<span style="color:var(--mut)">nothing pending</span>';
+ const ps=Object.entries(S.pos);
+ $('pos').innerHTML=ps.length?ps.map(([m,p])=>`${p.sym} · entry $${p.entry.toPrecision(4)} · ${((Date.now()-p.t)/36e5).toFixed(1)}h`).join('<br>'):'none';
+}
+let KPR=null,CONN=null;
+function loadKey(){const v=$('pk').value.trim();if(!v)return;
+ try{KPR=solanaWeb3.Keypair.fromSecretKey(b58d(v));CONN=new solanaWeb3.Connection(cfg().rpc,'confirmed');if(/api\.mainnet-beta\.solana\.com/.test(cfg().rpc))log('WARNING: the public Solana RPC blocks browsers (403). Use a Helius/QuickNode URL.');$('pk').value='';
+  wallet=KPR.publicKey.toString();$('addr').textContent='AUTO '+wallet.slice(0,4)+'…'+wallet.slice(-4);log('auto mode ON (burner '+wallet.slice(0,4)+'…)')}
+ catch(e){KPR=null;log('bad key: '+e.message)}}
+async function autoExec(it){
+ const c=cfg();
+ try{
+  let [a,b,amt]=it.type==='buy'?[SOL,it.mint,String(Math.round(c.size*1e9))]:[it.mint,SOL,String(it.tokens)];
+  if(!c.dry){
+   if(it.type==='buy'&&(await CONN.getBalance(KPR.publicKey))/1e9<c.size+0.02){queue=queue.filter(x=>x!==it);return log('insufficient SOL for '+it.sym)}
+   if(it.type==='sell'){const ta=await CONN.getParsedTokenAccountsByOwner(KPR.publicKey,{mint:new solanaWeb3.PublicKey(it.mint)});
+    amt=ta.value.reduce((s,x)=>s+BigInt(x.account.data.parsed.info.tokenAmount.amount),0n).toString();
+    if(amt==='0'){commit(it,0);return log('nothing to sell for '+it.sym)}}}
+  const q=await quote(a,b,amt,it.urgent?1500:0);
+  if(c.dry){log(`DRY RUN ${it.type} ${it.sym}: ${amt} of ${a.slice(0,4)} → ${q.outAmount} of ${b.slice(0,4)}`);commit(it,q.otherAmountThreshold,q.outAmount);return}
+  const r=await fetch('https://api.jup.ag/swap/v1/swap',{method:'POST',headers:{'x-api-key':c.key,'Content-Type':'application/json'},
+   body:JSON.stringify({quoteResponse:q,userPublicKey:wallet,wrapAndUnwrapSol:true,dynamicComputeUnitLimit:true})});
+  if(!r.ok)throw new Error('swap '+r.status);
+  const tx=solanaWeb3.VersionedTransaction.deserialize(Uint8Array.from(atob((await r.json()).swapTransaction),ch=>ch.charCodeAt(0)));
+  tx.sign([KPR]);const sig=await CONN.sendRawTransaction(tx.serialize(),{maxRetries:3});
+  const cf=await CONN.confirmTransaction(sig,'confirmed');if(cf.value.err)throw new Error('tx failed on-chain');
+  log(`AUTO ${it.type} ${it.sym}: https://solscan.io/tx/${sig}`);commit(it,q.otherAmountThreshold,q.outAmount);
+ }catch(e){log('auto error: '+(e.message||e));queue=queue.filter(x=>x!==it);if(it.type==='buy')S.cool[it.mint]=Date.now()+36e5}
+}
+const wl=async()=>{try{await navigator.wakeLock.request('screen')}catch(e){}};
+document.addEventListener('visibilitychange',()=>{if(timer&&document.visibilityState==='visible')wl()});
+let busy=false;
+async function tick(){if(busy)return;busy=true;try{await manage();if(n++%(cfg().mode!=='mom'?4:12)===0)await scan();if(KPR)for(const it of queue.slice())await autoExec(it)}catch(e){log('error: '+e.message)}finally{busy=false}render()}
+
+const prov=()=>{const p=window.phantom?.solana||window.solana;return p&&p.isPhantom?p:null};
+function setWallet(pk){wallet=pk?pk.toString():null;$('addr').textContent=wallet?wallet.slice(0,4)+'…'+wallet.slice(-4):'not connected';$('conn').textContent=wallet?'Disconnect':'Connect Phantom'}
+// --- base58 + Phantom deeplink layer (used when no injected provider, e.g. phone browser / installed app) ---
+const A='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const b58e=u=>{const d=[];for(const x of u){let c=x;for(let i=0;i<d.length;i++){c+=d[i]<<8;d[i]=c%58;c=c/58|0}while(c){d.push(c%58);c=c/58|0}}let r='';for(const x of u){if(x)break;r+='1'}for(let i=d.length-1;i>=0;i--)r+=A[d[i]];return r};
+const b58d=t=>{const o=[];for(const ch of t){let c=A.indexOf(ch);for(let i=0;i<o.length;i++){c+=o[i]*58;o[i]=c&255;c>>=8}while(c){o.push(c&255);c>>=8}}for(const ch of t){if(ch!=='1')break;o.push(0)}return Uint8Array.from(o.reverse())};
+const KP=(()=>{const k=ls.get('pmk2');if(k)return nacl.box.keyPair.fromSecretKey(b58d(k));const p=nacl.box.keyPair();ls.set('pmk2',b58e(p.secretKey));return p})();
+const RL=location.origin+location.pathname,te=new TextEncoder(),td=new TextDecoder();let sh=null;
+const DL=(m,q)=>'https://phantom.app/ul/v1/'+m+'?'+new URLSearchParams(q);
+const setShared=pk=>{sh=nacl.box.before(b58d(pk),KP.secretKey)};
+const dlConnect=()=>{location.href=DL('connect',{app_url:location.origin,dapp_encryption_public_key:b58e(KP.publicKey),redirect_link:RL,cluster:'mainnet-beta'})};
+function dlSend(tx,pending){
+ if(!sh||!ls.get('pms'))return alert('Reconnect Phantom first');
+ ls.set('pmp',JSON.stringify(pending));const nonce=nacl.randomBytes(24);
+ const pl=nacl.box.after(te.encode(JSON.stringify({transaction:b58e(tx.serialize()),session:ls.get('pms')})),nonce,sh);
+ location.href=DL('signAndSendTransaction',{dapp_encryption_public_key:b58e(KP.publicKey),nonce:b58e(nonce),redirect_link:RL,payload:b58e(pl)})}
+const dec=u=>JSON.parse(td.decode(nacl.box.open.after(b58d(u.get('data')),b58d(u.get('nonce')),sh)));
+function handleReturn(){
+ const u=new URLSearchParams(location.search);if(!u.get('data')&&!u.get('errorCode'))return;
+ history.replaceState(null,'',location.pathname);
+ if(u.get('errorCode')){log('Phantom: '+(u.get('errorMessage')||u.get('errorCode'))+' - nothing was recorded');ls.set('pmp','');return}
+ try{
+  if(u.get('phantom_encryption_public_key')){ // connect response
+   const pk=u.get('phantom_encryption_public_key');setShared(pk);ls.set('pmx',pk);
+   const d=dec(u);ls.set('pms',d.session);ls.set('pmw',d.public_key);setWallet(d.public_key);log('connected via Phantom app');
+  }else{ // signAndSendTransaction response
+   const d=dec(u),p=JSON.parse(ls.get('pmp')||'null');
+   log('sent: https://solscan.io/tx/'+d.signature);if(p)commit(p.it,p.tokens);ls.set('pmp','');
+  }
+ }catch(e){log('return error: '+e.message)}}
+function commit(it,tokens,out){
+ if(it.type==='buy'){S.pos[it.mint]={sym:it.sym,entry:it.price,peak:it.price,t:Date.now(),tokens,sol:it.sol,strat:it.strat,mode:it.strat||it.mode,note:it.note,low:it.price,psl:it.psl,ptp:it.ptp,pmax:it.pmax};S.buys.push(Date.now())}
+ else{const pp=S.pos[it.mint];if(pp){ // PnL uses the expected proceeds, not the worst-case minimum
+  const sol=pp.sol||0,pnl=(Number(out??tokens)||0)/1e9-sol;S.pnl=S.pnl||[];S.pnl.push([Date.now(),pnl]);
+  S.journal=(S.journal||[]).concat([{t:Date.now(),sym:pp.sym,mode:pp.mode||'',e:pp.entry,x:it.px||pp.entry,pct:sol?pnl/sol*100:0,pnl,h:(Date.now()-pp.t)/36e5,
+   up:(pp.peak/pp.entry-1)*100,dn:((pp.low||pp.entry)/pp.entry-1)*100,why:it.note||'',note:pp.note||''}]).slice(-300)}delete S.pos[it.mint];S.cool[it.mint]=Date.now()+6*36e5}
+ queue=queue.filter(x=>!(x.mint===it.mint&&x.type===it.type));save();render()}
+
+$('conn').onclick=async()=>{const p=prov();
+ if(!p){if(wallet){['pmw','pms','pmx'].forEach(k=>ls.set(k,''));sh=null;setWallet(null)}else dlConnect();return}
+ if(wallet){await p.disconnect();return}
+ try{setWallet((await p.connect()).publicKey)}catch(e){log('connection rejected in Phantom')}};
+window.addEventListener('load',()=>{const p=prov();log(p?'Phantom wallet detected in this browser':'Phantom wallet NOT detected here - Connect will use the Phantom app link (may be unsupported). Use AUTO MODE with a burner key instead.');if(!p)return;
+ p.connect({onlyIfTrusted:true}).then(r=>setWallet(r.publicKey)).catch(()=>{});
+ p.on('connect',pk=>setWallet(pk));p.on('disconnect',()=>setWallet(null));
+ p.on('accountChanged',pk=>pk?setWallet(pk):p.connect().then(r=>setWallet(r.publicKey)).catch(()=>setWallet(null)))});
+$('go').onclick=()=>{if(!cfg().key)return alert('Enter your Jupiter API key');save();loadKey();wl();clearInterval(timer);n=0;tick();timer=setInterval(tick,15000);log('agent started (dry run: '+cfg().dry+')')};
+$('stop').onclick=()=>{clearInterval(timer);log('agent stopped')};
+$('reset').onclick=()=>{if(confirm('Clear positions and history?')){S={pos:{},cool:{},buys:[],journal:S.journal||[],pool:S.pool,wl:S.wl};queue=[];save();render()}};
+if(ls.get('pmx'))setShared(ls.get('pmx'));if(ls.get('pmw'))setWallet(ls.get('pmw'));handleReturn();
+$('jcopy').onclick=()=>{const j=S.journal||[],q=v=>'"'+String(v||'').replace(/"/g,"'")+'"';
+ const csv=['time,symbol,mode,entry,exit,pct,pnl_sol,hours,max_up_pct,max_down_pct,reason,entry_note',...j.map(x=>[new Date(x.t).toISOString(),x.sym,x.mode,x.e,x.x,x.pct.toFixed(2),x.pnl.toFixed(5),x.h.toFixed(2),x.up.toFixed(1),x.dn.toFixed(1),q(x.why),q(x.note)].join(','))].join('\n');
+ (navigator.clipboard?navigator.clipboard.writeText(csv):Promise.reject()).then(()=>log('journal copied'),()=>log('copy failed'))};
+$('jclear').onclick=()=>{if(confirm('Clear the journal?')){S.journal=[];save();render()}};
+$('resolve').onclick=resolveWL;$('analyze').onclick=analyze;
+render();
+</script></body></html>
